@@ -1,9 +1,7 @@
 from pathlib import Path
 
 DUCKDB_PATH = r"C:\Data\duckdb\asd.duckdb"
-
 SOURCE_TABLE = "main.mv_school_naplan_results_enriched_v2"
-
 OUTPUT_BASE_DIR = Path(r"C:\Data\json\search")
 
 COLUMN_MAP = {
