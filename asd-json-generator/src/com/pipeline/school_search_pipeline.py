@@ -15,18 +15,73 @@ from src.com.tools.json_writer import write_minified_json
 
 
 def build_school_search_sql() -> str:
-    columns = ",\n        ".join(COLUMN_MAP.keys())
-    return f"""
-    SELECT
-        {columns}
-    FROM {SOURCE_TABLE}
-    WHERE is_latest = 1
-      AND (
-            primary_rating IS NOT NULL
-         OR secondary_rating IS NOT NULL
-      )
-    """
+    latest_columns = ",\n        ".join(
+        f"latest_school.{column_name}" for column_name in COLUMN_MAP.keys()
+    )
 
+    return f"""
+    WITH max_year_cte AS (
+        SELECT MAX(source_data.calendar_year) AS max_rating_year
+        FROM {SOURCE_TABLE} AS source_data
+    ),
+    trend_year_cte AS (
+        SELECT generated_year.rating_trend_year
+        FROM max_year_cte AS max_year
+        CROSS JOIN generate_series(
+            max_year.max_rating_year - 4,
+            max_year.max_rating_year,
+            1
+        ) AS generated_year(rating_trend_year)
+    ),
+    latest_school AS (
+        SELECT latest_source.*
+        FROM {SOURCE_TABLE} AS latest_source
+        WHERE latest_source.is_latest = 1
+          AND (
+              latest_source.primary_rating IS NOT NULL
+              OR latest_source.secondary_rating IS NOT NULL
+          )
+    ),
+    trend_school_cte AS (
+        SELECT DISTINCT latest_school.acara_sml_id AS trend_school_id
+        FROM latest_school
+    ),
+    trend_rows_cte AS (
+        SELECT
+            trend_school.trend_school_id,
+            trend_year.rating_trend_year,
+            historical_rating.primary_rating AS trend_primary_rating,
+            historical_rating.secondary_rating AS trend_secondary_rating
+        FROM trend_school_cte AS trend_school
+        CROSS JOIN trend_year_cte AS trend_year
+        LEFT JOIN {SOURCE_TABLE} AS historical_rating
+          ON historical_rating.acara_sml_id = trend_school.trend_school_id
+         AND historical_rating.calendar_year = trend_year.rating_trend_year
+    ),
+    trend_values_cte AS (
+        SELECT
+            trend_rows.trend_school_id,
+            string_agg(
+                COALESCE(CAST(ROUND(trend_rows.trend_primary_rating, 1) AS VARCHAR), 'null'),
+                ','
+                ORDER BY trend_rows.rating_trend_year
+            ) AS pd,
+            string_agg(
+                COALESCE(CAST(ROUND(trend_rows.trend_secondary_rating, 1) AS VARCHAR), 'null'),
+                ','
+                ORDER BY trend_rows.rating_trend_year
+            ) AS sd
+        FROM trend_rows_cte AS trend_rows
+        GROUP BY trend_rows.trend_school_id
+    )
+    SELECT
+        {latest_columns},
+        trend_values.pd,
+        trend_values.sd
+    FROM latest_school
+    LEFT JOIN trend_values_cte AS trend_values
+      ON trend_values.trend_school_id = latest_school.acara_sml_id
+    """
 
 def extract_school_data() -> pd.DataFrame:
     sql = build_school_search_sql()
@@ -46,7 +101,9 @@ def normalise_state(df: pd.DataFrame) -> pd.DataFrame:
 def slugify(value: object) -> str:
     """
     Convert a school name/suburb/state value into a URL-safe slug component.
-    Example: "Mentone Girls' Grammar School" -> "mentone-girls-grammar-school"
+
+    Example:
+        "Mentone Girls' Grammar School" -> "mentone-girls-grammar-school"
     """
     if value is None or pd.isna(value):
         return ""
@@ -64,13 +121,9 @@ def add_school_profile_slug(df: pd.DataFrame) -> pd.DataFrame:
     Add a stable slug used by Wix school profile pages.
 
     Format:
-        <school-name>-<state>-<acara-id>
-
-    Example:
         mentone-girls-grammar-school-vic-46195
     """
     df = df.copy()
-
     df["slug"] = df.apply(
         lambda row: "-".join(
             part
@@ -83,7 +136,6 @@ def add_school_profile_slug(df: pd.DataFrame) -> pd.DataFrame:
         ),
         axis=1,
     )
-
     return df
 
 
