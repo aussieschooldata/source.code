@@ -1,1 +1,7 @@
 *.pyc
+asd-json-generator/src/com/tools/__init__.py
+asd-json-generator/src/com/__init__.py
+asd-json-generator/src/com/config/__init__.py
+asd-json-generator/src/com/pipeline/__init__.py
+*.pyc
+*.pyc
