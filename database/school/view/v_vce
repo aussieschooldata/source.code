@@ -1,0 +1,57 @@
+CREATE OR REPLACE VIEW school.v_vce AS
+WITH base AS (
+SELECT
+    v.*,
+    CASE
+        WHEN (((vce_vm_vet_pgm_u3_4_enrolment < 10)
+        OR (COALESCE(pct_satisfactory_vce_comp, 0) <= 10)
+        OR (student_enrol_vce_u3_4 < 25))) THEN ('Small/Skew')
+        ELSE 'Not Small'
+    END AS small_school,
+    least(40, ((median_vce_study_score / 39.0) * 40)) AS normalized_median_score_40,
+    least(25, ((pct_study_score_40_over / 45.0) * 25)) AS over_40_25,
+    ((pct_satisfactory_vce_comp / 100.0) * 15) AS satisfactory_15,
+    ((pct_vce_student_apply_tertiary / 100.0) * 18) AS tertiary_18,
+    max(log10("nullif"(student_enrol_vce_u3_4, 0))) OVER (PARTITION BY calendar_year) AS max_log_per_year
+FROM
+    school.vce AS v),
+scored AS (
+SELECT
+    *,
+    ((log10("nullif"(student_enrol_vce_u3_4, 0)) / max_log_per_year) * 2) AS size_2
+FROM
+    base),
+overall AS (
+SELECT
+    *,
+    ((((COALESCE(normalized_median_score_40, 0) + COALESCE(over_40_25, 0)) + COALESCE(satisfactory_15, 0)) + COALESCE(tertiary_18, 0)) + COALESCE(size_2, 0)) AS overall_score
+FROM
+    scored),
+percentiled AS (
+SELECT
+    school_name,
+    locality,
+    calendar_year,
+    cume_dist() OVER (PARTITION BY calendar_year
+ORDER BY
+    overall_score) AS percentile_calc
+FROM
+    overall
+WHERE
+    (small_school = 'Not Small')
+)SELECT
+    o.*,
+    o.small_school AS "Small School?",
+    o.normalized_median_score_40 AS "Normalized Median Score (40%)",
+    o.over_40_25 AS "> 40 (25%)",
+    o.satisfactory_15 AS "Satisfactory (15%)",
+    o.tertiary_18 AS "Tertiary (18%)",
+    o.size_2 AS "Size (2%)",
+    o.overall_score AS "Overall Score",
+    p.percentile_calc AS Percentile
+FROM
+    overall AS o
+LEFT JOIN percentiled AS p ON
+    (((o.school_name = p.school_name)
+        AND (o.locality = p.locality)
+            AND (o.calendar_year = p.calendar_year)));

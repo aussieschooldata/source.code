@@ -1,0 +1,5 @@
+CREATE OR REPLACE VIEW geo.xv_sal_2021 AS
+SELECT *
+FROM ST_Read(
+    'G:/My Drive/AussieSchoolDataV2/Source Data/Geo/SAL_2021_AUST_GDA2020/SAL_2021_AUST_GDA2020.shp'
+);
