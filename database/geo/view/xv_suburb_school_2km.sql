@@ -101,3 +101,6 @@ WHERE
         ST_Boundary(c.suburb_geom_3577),
         c.school_point_3577
     ) <= 2000;
+
+CREATE OR REPLACE TABLE geo.mv_suburb_school_2km AS
+SELECT * FROM geo.xv_suburb_school_2km;
